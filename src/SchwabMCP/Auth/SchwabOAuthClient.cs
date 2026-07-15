@@ -33,9 +33,17 @@ public sealed class SchwabOAuthClient
     /// <summary>Builds the browser authorize URL for the configured app + callback.</summary>
     public string BuildAuthorizeUrl()
     {
-        var clientId = Uri.EscapeDataString(_options.AppKey.Trim());
+        var clientId = Uri.EscapeDataString(SanitizeCredential(_options.AppKey));
         var redirect = Uri.EscapeDataString(_options.CallbackUrl.Trim());
         return $"{SchwabOAuthEndpoints.AuthorizeUrl}?client_id={clientId}&redirect_uri={redirect}";
+    }
+
+    /// <summary>Safe fingerprint for diagnostics (never the full secret).</summary>
+    public string DescribeClientCredentials()
+    {
+        var key = SanitizeCredential(_options.AppKey);
+        var secret = SanitizeCredential(_options.AppSecret);
+        return $"AppKey length={key.Length}, prefix={Prefix(key, 4)}…; AppSecret length={secret.Length}";
     }
 
     /// <summary>Exchange an authorization code for access + refresh tokens.</summary>
@@ -49,6 +57,7 @@ public sealed class SchwabOAuthClient
         {
             ["grant_type"] = "authorization_code",
             ["code"] = authorizationCode.Trim(),
+            // Must match authorize redirect_uri and the portal app callback exactly.
             ["redirect_uri"] = _options.CallbackUrl.Trim(),
         };
 
@@ -111,8 +120,23 @@ public sealed class SchwabOAuthClient
         {
             var code = parsed?.Error ?? response.StatusCode.ToString();
             var desc = parsed?.ErrorDescription ?? Truncate(body, 200);
-            throw new SchwabOAuthException(
-                $"Schwab token request failed ({code}): {desc}")
+            var message = $"Schwab token request failed ({code}): {desc}";
+            if (string.Equals(parsed?.Error, "invalid_client", StringComparison.OrdinalIgnoreCase) ||
+                response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                message +=
+                    "\n\ninvalid_client / 401 means Schwab rejected AppKey+AppSecret (Basic auth), " +
+                    "not the pasted redirect URL." +
+                    "\nLoaded credentials: " + DescribeClientCredentials() +
+                    "\nFix:" +
+                    "\n  1) Portal → Apps → your app → App Details → Show App Key and Secret" +
+                    "\n  2) Re-copy Secret carefully (no spaces/quotes); must be the same app as App Key" +
+                    "\n  3) dotnet user-secrets set \"Schwab:AppKey\" \"...\" --project src/SchwabMCP" +
+                    "\n  4) dotnet user-secrets set \"Schwab:AppSecret\" \"...\" --project src/SchwabMCP" +
+                    "\n  5) Run login again (authorization codes are single-use)";
+            }
+
+            throw new SchwabOAuthException(message)
             {
                 ErrorCode = parsed?.Error,
                 StatusCode = (int)response.StatusCode,
@@ -138,9 +162,33 @@ public sealed class SchwabOAuthClient
 
     private string BuildBasicAuth()
     {
-        var raw = $"{_options.AppKey.Trim()}:{_options.AppSecret.Trim()}";
+        // Schwab: Authorization Basic base64("{appKey}:{appSecret}")
+        var raw = $"{SanitizeCredential(_options.AppKey)}:{SanitizeCredential(_options.AppSecret)}";
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(raw));
     }
+
+    /// <summary>Trim BOM/whitespace; strip embedded newlines from botched pastes.</summary>
+    internal static string SanitizeCredential(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "";
+        }
+
+        var trimmed = value.Trim().Trim('\uFEFF', '\u200B');
+        // Remove accidental wrapping quotes from shell copy/paste.
+        if (trimmed.Length >= 2 &&
+            ((trimmed[0] == '"' && trimmed[^1] == '"') ||
+             (trimmed[0] == '\'' && trimmed[^1] == '\'')))
+        {
+            trimmed = trimmed[1..^1].Trim();
+        }
+
+        return string.Concat(trimmed.Where(static c => !char.IsWhiteSpace(c)));
+    }
+
+    private static string Prefix(string value, int count) =>
+        value.Length <= count ? value : value[..count];
 
     private static string Truncate(string value, int max)
     {

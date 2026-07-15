@@ -12,7 +12,7 @@ public static class Program
 {
     private static readonly HashSet<string> Commands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "status", "login", "logout", "refresh", "help", "-h", "--help",
+        "status", "login", "logout", "refresh", "creds", "help", "-h", "--help",
     };
 
     public static async Task<int> Main(string[] args)
@@ -41,6 +41,7 @@ public static class Program
                 "login" => await RunLoginAsync(host.Services, hostArgs).ConfigureAwait(false),
                 "logout" => await RunLogoutAsync(host.Services).ConfigureAwait(false),
                 "refresh" => await RunRefreshAsync(host.Services).ConfigureAwait(false),
+                "creds" => RunCreds(host.Services),
                 _ => UnknownCommand(command),
             };
         }
@@ -175,6 +176,19 @@ public static class Program
         return 0;
     }
 
+    private static int RunCreds(IServiceProvider services)
+    {
+        var client = services.GetRequiredService<SchwabOAuthClient>();
+        var options = services.GetRequiredService<IOptions<SchwabOptions>>().Value;
+        Console.WriteLine("Loaded Schwab client credentials (fingerprints only):");
+        Console.WriteLine($"  {client.DescribeClientCredentials()}");
+        Console.WriteLine($"  CallbackUrl: {options.CallbackUrl}");
+        Console.WriteLine();
+        Console.WriteLine("Compare AppKey prefix/length to Developer Portal → App Details.");
+        Console.WriteLine("Do not use: dotnet user-secrets list  (it prints full secrets).");
+        return 0;
+    }
+
     private static int UnknownCommand(string command)
     {
         Console.Error.WriteLine($"Unknown command: {command}");
@@ -197,6 +211,7 @@ public static class Program
               login      Browser OAuth; save refresh/access tokens locally
               refresh    Refresh access token using stored refresh token
               logout     Delete local token store
+              creds      Show AppKey/AppSecret fingerprints only (no secret values)
               help       Show this help
 
             login options:
