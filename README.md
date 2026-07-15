@@ -54,12 +54,24 @@ docs/authentication.md   How to supply secrets safely
 .env.example             Env var names only
 ```
 
+## OAuth (login)
+
+```powershell
+dotnet run --project src/SchwabMCP -- login     # browser + paste fallback
+dotnet run --project src/SchwabMCP -- status
+dotnet run --project src/SchwabMCP -- refresh
+dotnet run --project src/SchwabMCP -- logout
+```
+
+Tokens are stored under your user profile (DPAPI on Windows), not in git.
+
 ## Status
 
 - [x] Secret hygiene (gitleaks hooks + CI)
 - [x] Secrets/config structure (options, token store, validation)
+- [x] Schwab OAuth (login / refresh / logout + access token helper)
 - [ ] MCP protocol host + tools
-- [ ] Schwab OAuth + API client
+- [ ] Schwab market/account API client
 
 ## License
 

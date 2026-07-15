@@ -9,7 +9,7 @@ namespace SchwabMCP.Hosting;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers Schwab options (bound + validated on start), file token store, and <see cref="TokenProvider"/>.
+    /// Registers Schwab options (bound + validated on start), token store, OAuth client, and login service.
     /// </summary>
     public static IServiceCollection AddSchwabAuth(
         this IServiceCollection services,
@@ -34,6 +34,14 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddSingleton<TokenProvider>();
+
+        services.AddHttpClient<SchwabOAuthClient>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(60);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("SchwabMCP/0.1 (+https://github.com/ronnotel/SchwabMCP)");
+        });
+
+        services.AddSingleton<SchwabOAuthService>();
 
         return services;
     }

@@ -85,10 +85,42 @@ On startup, missing `AppKey` / `AppSecret` (or an invalid callback URL) fails wi
 Verify locally (with secrets set):
 
 ```powershell
-dotnet run --project src/SchwabMCP
+dotnet run --project src/SchwabMCP -- status
 ```
 
 Without secrets you should see validation errors pointing here—not a hang or a vague HTTP failure.
+
+## OAuth login (authorization code)
+
+App key/secret alone cannot call brokerage APIs. You must complete OAuth once (or after refresh token expiry/revocation).
+
+```powershell
+cd C:\Users\ronno\Source\SchwabMCP
+dotnet run --project src/SchwabMCP -- login
+```
+
+What happens:
+
+1. Builds `https://api.schwabapi.com/v1/oauth/authorize?client_id=…&redirect_uri=…`
+2. Opens your browser (or prints the URL)
+3. Tries to listen on your **Callback URL** for the redirect
+4. If HTTPS listen fails (no local cert — common), **paste mode**: after Schwab redirects, copy the full URL from the browser address bar and paste it into the terminal
+5. Exchanges the `code` at `https://api.schwabapi.com/v1/oauth/token` (HTTP Basic: app key + secret)
+6. Saves access + refresh tokens to the local token store (DPAPI on Windows)
+
+```powershell
+dotnet run --project src/SchwabMCP -- login --paste     # skip listener
+dotnet run --project src/SchwabMCP -- refresh           # renew access token
+dotnet run --project src/SchwabMCP -- logout            # delete local tokens
+```
+
+**Callback URL** in the Schwab developer portal must match `Schwab:CallbackUrl` exactly (default `https://127.0.0.1:8182`).
+
+Paste tips:
+
+- The browser page may show a connection error after redirect — that is normal if no HTTPS cert is bound. The **address bar** still has `?code=...`.
+- Paste the **entire** URL, not only the code, when possible.
+- Authorization codes are single-use and short-lived; if exchange fails, run `login` again.
 
 ## What never goes in git
 
@@ -117,6 +149,9 @@ Pre-commit **gitleaks** and CI secret-scan block many of these; do not use `--no
 | `ProtectedFileTokenStore` | Default disk store (DPAPI on Windows) |
 | `MemoryTokenStore` | Tests / ephemeral sessions |
 | `TokenProvider` | Store + optional env refresh resolution |
+| `SchwabOAuthClient` | Token endpoint (code exchange + refresh) |
+| `SchwabOAuthService` | Interactive login, `GetAccessTokenAsync`, logout |
+| `OAuthCallbackListener` | Local redirect capture + paste parsing |
 | `Hosting.ServiceCollectionExtensions.AddSchwabAuth` | DI registration |
 
-Interactive OAuth and live Schwab HTTP calls are implemented separately on top of this layer.
+Live Schwab market/account HTTP APIs and the MCP host build on `SchwabOAuthService.GetAccessTokenAsync`.
