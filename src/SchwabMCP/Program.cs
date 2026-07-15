@@ -104,6 +104,8 @@ public static class Program
     {
         var pasteOnly = hostArgs.Any(a =>
             string.Equals(a, "--paste", StringComparison.OrdinalIgnoreCase));
+        var forceListen = hostArgs.Any(a =>
+            string.Equals(a, "--listen", StringComparison.OrdinalIgnoreCase));
         var timeout = TimeSpan.FromMinutes(5);
         for (var i = 0; i < hostArgs.Length; i++)
         {
@@ -120,17 +122,30 @@ public static class Program
         var options = services.GetRequiredService<IOptions<SchwabOptions>>().Value;
         var store = services.GetRequiredService<ITokenStore>();
 
+        // HTTPS callback → paste by default (browser "connection reset" is expected).
+        bool? preferListener = null;
+        if (pasteOnly)
+        {
+            preferListener = false;
+        }
+        else if (forceListen)
+        {
+            preferListener = true;
+        }
+
         Console.WriteLine("Schwab OAuth login");
         Console.WriteLine($"  Callback:     {options.CallbackUrl}");
         Console.WriteLine($"  Token store:  {store.Description}");
         Console.WriteLine($"  Timeout:      {timeout.TotalSeconds:0}s");
-        Console.WriteLine($"  Mode:         {(pasteOnly ? "paste only" : "listener, then paste fallback")}");
+        Console.WriteLine();
+        Console.WriteLine("NOTE: After Schwab redirects to 127.0.0.1, the browser page will usually");
+        Console.WriteLine("FAIL to load (connection reset). That is OK — copy the address-bar URL.");
         Console.WriteLine();
 
         var tokens = await oauth.LoginInteractiveAsync(
                 timeout,
                 openBrowser: true,
-                preferListener: !pasteOnly)
+                preferListener: preferListener)
             .ConfigureAwait(false);
 
         Console.WriteLine();
@@ -185,7 +200,8 @@ public static class Program
               help       Show this help
 
             login options:
-              --paste              Skip HttpListener; paste redirect URL only
+              --paste              Force paste mode (default for https:// callbacks)
+              --listen             Try local HttpListener (needs TLS cert for https)
               --timeout <seconds>  Listener wait time (default 300)
 
             Secrets (never commit):

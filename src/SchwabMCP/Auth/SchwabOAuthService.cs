@@ -36,18 +36,33 @@ public sealed class SchwabOAuthService
     /// Runs the authorization_code flow: open browser, capture code (listener or paste),
     /// exchange for tokens, persist via <see cref="ITokenStore"/>.
     /// </summary>
+    /// <remarks>
+    /// HTTPS callbacks (Schwab's usual requirement, e.g. https://127.0.0.1:8182) almost never
+    /// work with a bare HttpListener — no TLS cert is bound, so the browser shows
+    /// "connection was reset" / "can't reach this page" after login. That is expected.
+    /// The authorization code is still in the address bar; paste mode is the default for HTTPS.
+    /// </remarks>
     public async Task<SchwabTokenSet> LoginInteractiveAsync(
         TimeSpan timeout,
         bool openBrowser = true,
-        bool preferListener = true,
+        bool? preferListener = null,
         CancellationToken cancellationToken = default)
     {
         var authorizeUrl = _oauth.BuildAuthorizeUrl();
-        _logger.LogInformation("Starting Schwab OAuth login (callback {Callback})", _options.CallbackUrl);
+        var callbackIsHttps = _options.CallbackUrl.Trim()
+            .StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+        // HTTPS local callbacks need a certificate; default to paste so we don't pretend to listen.
+        var useListener = preferListener ?? !callbackIsHttps;
+
+        _logger.LogInformation(
+            "Starting Schwab OAuth login (callback {Callback}, listener={Listener})",
+            _options.CallbackUrl,
+            useListener);
 
         string authorizationCode;
 
-        if (preferListener)
+        if (useListener)
         {
             await using var listener = new OAuthCallbackListener(_options.CallbackUrl);
             if (listener.TryStart(out var listenError))
@@ -56,14 +71,16 @@ public sealed class SchwabOAuthService
                 Console.WriteLine($"  {listener.Prefix}");
                 Console.WriteLine();
                 Console.WriteLine("Opening browser for Schwab authorization…");
-                Console.WriteLine("If the browser does not open, visit:");
-                Console.WriteLine($"  {authorizeUrl}");
+                Console.WriteLine("If the browser does not open, visit the authorize URL printed below.");
                 Console.WriteLine();
 
                 if (openBrowser)
                 {
                     TryOpenBrowser(authorizeUrl);
                 }
+
+                Console.WriteLine(authorizeUrl);
+                Console.WriteLine();
 
                 try
                 {
@@ -85,8 +102,6 @@ public sealed class SchwabOAuthService
                 Console.WriteLine("Could not start a local callback listener:");
                 Console.WriteLine($"  {listenError}");
                 Console.WriteLine();
-                Console.WriteLine(
-                    "HTTPS callbacks need a certificate bound to the port, which many dev machines lack.");
                 Console.WriteLine("Falling back to paste mode.");
                 Console.WriteLine();
                 authorizationCode = await PromptForCodeOrRedirectAsync(authorizeUrl, openBrowser)
@@ -95,6 +110,12 @@ public sealed class SchwabOAuthService
         }
         else
         {
+            if (callbackIsHttps)
+            {
+                Console.WriteLine("Using paste mode (HTTPS callback — local TLS cert not required).");
+                Console.WriteLine();
+            }
+
             authorizationCode = await PromptForCodeOrRedirectAsync(authorizeUrl, openBrowser)
                 .ConfigureAwait(false);
         }
@@ -193,7 +214,9 @@ public sealed class SchwabOAuthService
 
     private static async Task<string> PromptForCodeOrRedirectAsync(string authorizeUrl, bool openBrowser)
     {
-        Console.WriteLine("Authorize this app in your browser.");
+        Console.WriteLine("=== Schwab OAuth (paste mode) ===");
+        Console.WriteLine();
+        Console.WriteLine("1) Open this URL and sign in to Schwab (browser may open automatically):");
         Console.WriteLine();
         Console.WriteLine(authorizeUrl);
         Console.WriteLine();
@@ -203,10 +226,18 @@ public sealed class SchwabOAuthService
             TryOpenBrowser(authorizeUrl);
         }
 
-        Console.WriteLine("After login, Schwab redirects to your callback URL.");
-        Console.WriteLine("Copy the FULL address from the browser bar (it will look like it failed to load)");
-        Console.WriteLine("and paste it here, then press Enter.");
-        Console.WriteLine("(You can also paste only the authorization code.)");
+        Console.WriteLine("2) After you approve, Schwab redirects to https://127.0.0.1:…");
+        Console.WriteLine("   The page will usually FAIL to load. That is NORMAL.");
+        Console.WriteLine("   You may see: \"can't reach this page\", \"connection was reset\",");
+        Console.WriteLine("   \"connection refused\", or a certificate error.");
+        Console.WriteLine();
+        Console.WriteLine("3) Look at the browser ADDRESS BAR (not the error page body).");
+        Console.WriteLine("   It should look like:");
+        Console.WriteLine("     https://127.0.0.1:8182/?code=.....&session=.....");
+        Console.WriteLine("   Click the address bar, Select All, Copy.");
+        Console.WriteLine();
+        Console.WriteLine("4) Paste that FULL URL below and press Enter.");
+        Console.WriteLine("   (Do not paste this chat — only into this terminal prompt.)");
         Console.WriteLine();
         Console.Write("> ");
 

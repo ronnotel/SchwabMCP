@@ -103,24 +103,26 @@ What happens:
 
 1. Builds `https://api.schwabapi.com/v1/oauth/authorize?client_id=…&redirect_uri=…`
 2. Opens your browser (or prints the URL)
-3. Tries to listen on your **Callback URL** for the redirect
-4. If HTTPS listen fails (no local cert — common), **paste mode**: after Schwab redirects, copy the full URL from the browser address bar and paste it into the terminal
-5. Exchanges the `code` at `https://api.schwabapi.com/v1/oauth/token` (HTTP Basic: app key + secret)
-6. Saves access + refresh tokens to the local token store (DPAPI on Windows)
+3. You sign in and approve the app
+4. Schwab redirects to your callback (e.g. `https://127.0.0.1:8182/?code=…`)
+5. **The browser shows an error** (“can't reach this page”, “connection was reset”). **This is expected** — nothing is serving HTTPS on your PC without a local certificate. Ignore the page body.
+6. Copy the **full URL from the address bar** and paste it into the terminal prompt
+7. SchwabMCP exchanges the `code` at the token endpoint and saves tokens (DPAPI on Windows)
 
 ```powershell
-dotnet run --project src/SchwabMCP -- login --paste     # skip listener
-dotnet run --project src/SchwabMCP -- refresh           # renew access token
-dotnet run --project src/SchwabMCP -- logout            # delete local tokens
+dotnet run --project src/SchwabMCP -- login              # paste mode for https callbacks
+dotnet run --project src/SchwabMCP -- login --listen     # only if you bound a TLS cert
+dotnet run --project src/SchwabMCP -- refresh
+dotnet run --project src/SchwabMCP -- logout
 ```
 
 **Callback URL** in the Schwab developer portal must match `Schwab:CallbackUrl` exactly (default `https://127.0.0.1:8182`).
 
 Paste tips:
 
-- The browser page may show a connection error after redirect — that is normal if no HTTPS cert is bound. The **address bar** still has `?code=...`.
-- Paste the **entire** URL, not only the code, when possible.
-- Authorization codes are single-use and short-lived; if exchange fails, run `login` again.
+- Error page body is irrelevant; only the **address bar** matters.
+- URL should contain `code=` (and often `session=`).
+- Codes are single-use and expire quickly — if token exchange fails, run `login` again.
 
 ## What never goes in git
 
