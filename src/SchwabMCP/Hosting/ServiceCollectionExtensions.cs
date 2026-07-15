@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using SchwabMCP.Api;
 using SchwabMCP.Auth;
 using SchwabMCP.Configuration;
 
@@ -9,7 +10,7 @@ namespace SchwabMCP.Hosting;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers Schwab options (bound + validated on start), token store, OAuth client, and login service.
+    /// Registers Schwab options, token store, OAuth, and Trader API HTTP client.
     /// </summary>
     public static IServiceCollection AddSchwabAuth(
         this IServiceCollection services,
@@ -38,10 +39,19 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<SchwabOAuthClient>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(60);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("SchwabMCP/0.1 (+https://github.com/ronnotel/SchwabMCP)");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "SchwabMCP/0.1 (+https://github.com/ronnotel/SchwabMCP)");
         });
 
         services.AddSingleton<SchwabOAuthService>();
+
+        services.AddHttpClient<SchwabApiClient>(client =>
+        {
+            client.BaseAddress = new Uri(SchwabApiClient.ApiBaseUrl);
+            client.Timeout = TimeSpan.FromSeconds(60);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "SchwabMCP/0.1 (+https://github.com/ronnotel/SchwabMCP)");
+        });
 
         return services;
     }

@@ -12,7 +12,8 @@ Schwab MCP server in .NET — Model Context Protocol tools over the Charles Schw
 | `dotnet user-secrets` for local dev | OAuth **access** or **refresh** tokens |
 | CI / OS / MCP host environment variables | Account passwords, PEM/P12 keys, `tokens.txt` |
 
-Full guide: **[docs/authentication.md](docs/authentication.md)**.
+Full guide: **[docs/authentication.md](docs/authentication.md)**.  
+MCP / SuperGrok: **[docs/mcp.md](docs/mcp.md)**.
 
 ### Quick setup
 
@@ -24,54 +25,46 @@ powershell -NoProfile -File scripts/install-git-hooks.ps1
 dotnet user-secrets set "Schwab:AppKey" "YOUR_APP_KEY" --project src/SchwabMCP
 dotnet user-secrets set "Schwab:AppSecret" "YOUR_APP_SECRET" --project src/SchwabMCP
 
-# Validate config (prints presence only, never raw secrets)
-dotnet run --project src/SchwabMCP
+# OAuth once
+dotnet run --project src/SchwabMCP -- login
+dotnet run --project src/SchwabMCP -- status
 ```
 
-Or set `Schwab__AppKey` / `Schwab__AppSecret` in the environment (preferred for MCP clients).
+### MCP host
 
-Refresh tokens are stored under your user profile (`%LOCALAPPDATA%\SchwabMCP\` on Windows), not in the repo.
+```powershell
+dotnet build src/SchwabMCP/SchwabMCP.csproj -c Release
+# Default (no subcommand) = MCP stdio server for SuperGrok
+dotnet exec src\SchwabMCP\bin\Release\net10.0\SchwabMCP.dll
+```
+
+Tools: `auth_status`, `list_accounts`, `list_account_numbers`, `get_quotes`.
 
 ### Local protection
 
 Pre-commit runs **gitleaks** on staged files and **blocks** the commit if secrets are found (`winget install gitleaks` if needed).
-
-### Remote protection
-
-- GitHub Actions: [`.github/workflows/secret-scan.yml`](.github/workflows/secret-scan.yml)
-- GitHub secret scanning + push protection
 
 See [SECURITY.md](SECURITY.md) for reporting and rotation expectations.
 
 ## Repository layout
 
 ```text
-src/SchwabMCP/           MCP host + auth/config (this package)
-  Configuration/         SchwabOptions + fail-closed validation
-  Auth/                  ITokenStore, DPAPI/file store, TokenProvider
-  Hosting/               DI registration (AddSchwabAuth)
-docs/authentication.md   How to supply secrets safely
-.env.example             Env var names only
+src/SchwabMCP/
+  Auth/           OAuth + token store
+  Api/            Schwab HTTP client
+  Tools/          MCP tools
+  Hosting/        DI registration
+docs/authentication.md
+docs/mcp.md
 ```
-
-## OAuth (login)
-
-```powershell
-dotnet run --project src/SchwabMCP -- login     # browser + paste fallback
-dotnet run --project src/SchwabMCP -- status
-dotnet run --project src/SchwabMCP -- refresh
-dotnet run --project src/SchwabMCP -- logout
-```
-
-Tokens are stored under your user profile (DPAPI on Windows), not in git.
 
 ## Status
 
 - [x] Secret hygiene (gitleaks hooks + CI)
-- [x] Secrets/config structure (options, token store, validation)
-- [x] Schwab OAuth (login / refresh / logout + access token helper)
-- [ ] MCP protocol host + tools
-- [ ] Schwab market/account API client
+- [x] Secrets/config structure
+- [x] Schwab OAuth (login / refresh / logout)
+- [x] MCP stdio host + tools (accounts, quotes, auth_status)
+- [ ] Broader trader API surface (orders, positions detail, etc.)
 
 ## License
 

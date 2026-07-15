@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using ModelContextProtocol.Server;
 using SchwabMCP.Auth;
 using SchwabMCP.Configuration;
 using SchwabMCP.Hosting;
@@ -10,9 +12,14 @@ namespace SchwabMCP;
 
 public static class Program
 {
-    private static readonly HashSet<string> Commands = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> CliCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "status", "login", "logout", "refresh", "creds", "help", "-h", "--help",
+    };
+
+    private static readonly HashSet<string> McpCommands = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "mcp", "serve",
     };
 
     public static async Task<int> Main(string[] args)
@@ -25,11 +32,68 @@ public static class Program
             return 0;
         }
 
+        // Default with no verb: MCP stdio server (SuperGrok / Claude Desktop spawn this process).
+        // Explicit CLI verbs: status, login, logout, refresh, creds.
+        if (McpCommands.Contains(command) || string.IsNullOrEmpty(command))
+        {
+            return await RunMcpServerAsync(hostArgs).ConfigureAwait(false);
+        }
+
+        return await RunCliAsync(command, hostArgs).ConfigureAwait(false);
+    }
+
+    private static async Task<int> RunMcpServerAsync(string[] hostArgs)
+    {
         var builder = Host.CreateApplicationBuilder(hostArgs);
 
-        // Always allow user-secrets for local dev (not only when Environment=Development).
-        builder.Configuration.AddUserSecrets(typeof(Program).Assembly, optional: true);
+        // Never write logs to stdout — that breaks the MCP JSON-RPC framing.
+        builder.Logging.ClearProviders();
+        builder.Logging.AddConsole(options =>
+        {
+            options.LogToStandardErrorThreshold = LogLevel.Trace;
+        });
+        builder.Logging.SetMinimumLevel(LogLevel.Information);
+        builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+        builder.Logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Information);
 
+        builder.Configuration.AddUserSecrets(typeof(Program).Assembly, optional: true);
+        builder.Services.AddSchwabAuth(builder.Configuration);
+
+        builder.Services
+            .AddMcpServer(options =>
+            {
+                options.ServerInfo = new()
+                {
+                    Name = "SchwabMCP",
+                    Version = "0.1.0",
+                };
+            })
+            .WithStdioServerTransport()
+            .WithToolsFromAssembly();
+
+        try
+        {
+            await builder.Build().RunAsync().ConfigureAwait(false);
+            return 0;
+        }
+        catch (OptionsValidationException ex)
+        {
+            // stderr only
+            Console.Error.WriteLine("Schwab configuration is incomplete or invalid:");
+            foreach (var failure in ex.Failures)
+            {
+                Console.Error.WriteLine($"  - {failure}");
+            }
+
+            Console.Error.WriteLine("See docs/authentication.md");
+            return 1;
+        }
+    }
+
+    private static async Task<int> RunCliAsync(string command, string[] hostArgs)
+    {
+        var builder = Host.CreateApplicationBuilder(hostArgs);
+        builder.Configuration.AddUserSecrets(typeof(Program).Assembly, optional: true);
         builder.Services.AddSchwabAuth(builder.Configuration);
 
         try
@@ -98,6 +162,10 @@ public static class Program
             Console.WriteLine("  dotnet run --project src/SchwabMCP -- refresh");
         }
 
+        Console.WriteLine();
+        Console.WriteLine("MCP tools: auth_status, list_accounts, list_account_numbers, get_quotes");
+        Console.WriteLine("Start MCP host:  dotnet run --project src/SchwabMCP -- mcp");
+        Console.WriteLine("  (also the default when no command is passed)");
         return 0;
     }
 
@@ -123,7 +191,6 @@ public static class Program
         var options = services.GetRequiredService<IOptions<SchwabOptions>>().Value;
         var store = services.GetRequiredService<ITokenStore>();
 
-        // HTTPS callback → paste by default (browser "connection reset" is expected).
         bool? preferListener = null;
         if (pasteOnly)
         {
@@ -201,23 +268,30 @@ public static class Program
     {
         Console.WriteLine(
             """
-            SchwabMCP — local auth CLI (MCP host comes next)
+            SchwabMCP — Schwab OAuth CLI + MCP stdio server
 
             Usage:
               dotnet run --project src/SchwabMCP -- [command] [options]
 
             Commands:
-              status     Show config + token presence (default)
+              mcp        Start MCP stdio server (default when no command)
+              serve      Alias for mcp
+              status     Show config + token presence
               login      Browser OAuth; save refresh/access tokens locally
               refresh    Refresh access token using stored refresh token
               logout     Delete local token store
               creds      Show AppKey/AppSecret fingerprints only (no secret values)
               help       Show this help
 
+            MCP tools (when host is running):
+              auth_status, list_accounts, list_account_numbers, get_quotes
+
             login options:
               --paste              Force paste mode (default for https:// callbacks)
               --listen             Try local HttpListener (needs TLS cert for https)
               --timeout <seconds>  Listener wait time (default 300)
+
+            SuperGrok: see docs/mcp.md
 
             Secrets (never commit):
               dotnet user-secrets set "Schwab:AppKey" "..." --project src/SchwabMCP
@@ -231,19 +305,19 @@ public static class Program
     {
         if (args.Length == 0)
         {
-            return ("status", Array.Empty<string>());
+            // Empty command → MCP server (stdio hosts spawn with no subcommand).
+            return ("", Array.Empty<string>());
         }
 
-        if (Commands.Contains(args[0]))
+        if (CliCommands.Contains(args[0]) || McpCommands.Contains(args[0]))
         {
             return (args[0], args.Skip(1).ToArray());
         }
 
-        // Unknown first token still goes to host config? Treat as status + pass all
-        // so --environment etc. still work when no verb is given.
         if (args[0].StartsWith('-'))
         {
-            return ("status", args);
+            // Flags only → MCP, pass through for host config.
+            return ("", args);
         }
 
         return (args[0], args.Skip(1).ToArray());
