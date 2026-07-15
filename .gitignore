@@ -1,0 +1,64 @@
+# --- Secrets and credentials (never commit) ---
+.env
+.env.*
+!.env.example
+*.env
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+secrets/
+**/secrets/
+tokens.txt
+**/tokens.txt
+*-credentials.json
+**/client_secret*.json
+appsettings.Development.json
+appsettings.*.local.json
+
+# Schwab / OAuth token caches (refresh tokens are long-lived secrets)
+**/token_cache*.json
+**/oauth_tokens*.json
+**/tokens.json
+**/.schwab/
+
+# --- .NET ---
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.nupkg
+*.snupkg
+project.lock.json
+packages/
+TestResults/
+*.trx
+*.coveragexml
+*.binlog
+publish/
+
+# --- Rider / VS Code local ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Terraform (if used later) ---
+*.tfstate
+*.tfstate.backup
+.terraform/
+**/terraform.tfvars
+!**/terraform.tfvars.example
+
+# --- Agent / editor local noise ---
+.claude/settings.local.json
+*.local.json

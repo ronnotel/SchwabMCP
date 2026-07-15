@@ -1,0 +1,30 @@
+#!/bin/sh
+# SchwabMCP pre-commit (version-controlled).
+# Install once per clone:
+#   git config core.hooksPath .githooks
+#   # or:  powershell -NoProfile -File scripts/install-git-hooks.ps1
+#
+# Blocks commits that stage secrets (API keys, tokens, PEM files, etc.).
+
+set -e
+
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! gitleaks protect --staged --verbose --config="$ROOT/.gitleaks.toml"; then
+    echo ""
+    echo "SECRET DETECTED — commit blocked."
+    echo "Remove credentials from the staged files, rotate anything that was real,"
+    echo "and use user-secrets / env vars / a secret store instead of git."
+    exit 1
+  fi
+else
+  echo "ERROR: gitleaks is not on PATH — secret pre-commit scan is required."
+  echo "  Install: https://github.com/gitleaks/gitleaks#installing"
+  echo "  Windows: winget install gitleaks"
+  echo "  Local protection is mandatory for this public repo."
+  exit 1
+fi
+
+exit 0

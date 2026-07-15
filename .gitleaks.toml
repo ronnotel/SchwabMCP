@@ -1,0 +1,26 @@
+# Gitleaks configuration for SchwabMCP
+# Pre-commit: gitleaks protect --staged --config .gitleaks.toml
+# CI: .github/workflows/secret-scan.yml (full git history)
+#
+# Policy: never allowlist live Schwab credentials (app keys, app secrets,
+# refresh tokens, access tokens, or account credentials).
+
+title = "SchwabMCP"
+
+[extend]
+useDefault = true
+
+# Extra rules for Schwab / OAuth local caches that default rules may miss.
+[[rules]]
+id = "schwab-oauth-token-json"
+description = "Schwab/OAuth token cache JSON (access_token or refresh_token values)"
+regex = '''(?i)["'](?:access_token|refresh_token|app_secret|client_secret)["']\s*:\s*["']([A-Za-z0-9._\-]{20,})["']'''
+entropy = 3.0
+keywords = ["access_token", "refresh_token", "app_secret", "client_secret"]
+
+[[rules]]
+id = "schwab-bearer-header"
+description = "HTTP Authorization Bearer token assignment"
+regex = '''(?i)authorization["']?\s*[:=]\s*["']?bearer\s+([A-Za-z0-9._\-]{20,})'''
+entropy = 3.0
+keywords = ["bearer", "authorization"]
